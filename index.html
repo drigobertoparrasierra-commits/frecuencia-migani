@@ -10,8 +10,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts: Plus Jakarta Sans & Montserrat -->
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,800;0,900;1,800;1,900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <!-- Firebase SDKs -->
+    <!-- Firebase SDKs & MQTT Global Real-time Broker (Works out-of-the-box on GitHub Pages) -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -130,6 +130,10 @@
                 <span class="text-white/95 hidden sm:inline italic font-medium">"Comunicamos ideas, conectamos personas"</span>
             </div>
             <div class="flex items-center space-x-3 shrink-0">
+                <span id="cloudSyncStatusPill" class="inline-flex items-center gap-1.5 text-[11px] font-bold bg-white/20 px-2.5 py-0.5 rounded-full">
+                    <span id="cloudSyncDot" class="w-2 h-2 rounded-full bg-amber-300 animate-pulse"></span>
+                    <span id="cloudSyncText">Conectando Sala Global...</span>
+                </span>
                 <span class="hidden md:inline-flex items-center gap-1.5 text-[11px] font-semibold bg-white/15 px-2.5 py-0.5 rounded-full">
                     <i class="fa-solid fa-microphone-lines text-amber-300"></i> Emisora y Podcast Escolar
                 </span>
@@ -399,21 +403,21 @@
                         <div id="view-embed" class="hidden w-full h-full relative bg-gradient-to-br from-migani-navy to-slate-900 flex flex-col items-center justify-center p-5">
                             <div id="embedFormBox" class="max-w-md w-full space-y-3.5 text-center bg-white p-6 rounded-2xl shadow-xl text-migani-navy">
                                 <div class="w-12 h-12 mx-auto rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center text-migani-red">
-                                    <i class="fa-solid fa-lock text-xl"></i>
+                                    <i class="fa-solid fa-tower-broadcast text-xl"></i>
                                 </div>
-                                <h3 class="text-base font-extrabold text-migani-navy">Enlace Externo (Modo Admin)</h3>
-                                <p class="text-xs text-slate-600">Pega el link de YouTube Live, Twitch o VDO.Ninja transmitido desde tu celular:</p>
+                                <h3 class="text-base font-extrabold text-migani-navy">Transmitir para Todo el Mundo (Admin)</h3>
+                                <p class="text-xs text-slate-600">Pega aquí tu enlace de <b>YouTube Live</b> o el link de vista (<i>View Link</i>) de <b>VDO.Ninja</b> y todos los dispositivos conectados lo verán en vivo:</p>
                                 <div class="flex flex-col sm:flex-row gap-2">
-                                    <input type="text" id="externalStreamInput" placeholder="https://www.youtube.com/watch?v=..." class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-migani-navy focus:outline-none focus:border-migani-blue">
+                                    <input type="text" id="externalStreamInput" placeholder="https://youtube.com/live/... o https://vdo.ninja/?view=..." class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-migani-navy focus:outline-none focus:border-migani-blue">
                                     <button onclick="loadExternalEmbed()" class="bg-migani-red hover:bg-migani-redHover text-white px-4 py-2 rounded-xl text-xs font-extrabold transition shrink-0 shadow">
-                                        Conectar
+                                        Transmitir a Todos
                                     </button>
                                 </div>
                                 <div class="text-[11px] text-slate-500">
-                                    Prueba rápida: <button onclick="loadSampleYoutube()" class="text-migani-blue underline font-bold">Cargar radio musical de prueba</button>
+                                    💡 <b>Nota VDO.Ninja:</b> En tu celular usa el link <code>?push=...</code> y aquí pega el link que dice <code>?view=...</code>. <button onclick="loadSampleYoutube()" class="text-migani-blue underline font-bold">Probar con ejemplo en vivo</button>
                                 </div>
                             </div>
-                            <iframe id="externalStreamIframe" class="hidden w-full h-full border-0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                            <iframe id="externalStreamIframe" class="hidden w-full h-full border-0" allow="camera; microphone; autoplay; fullscreen; picture-in-picture; encrypted-media; gyroscope; accelerometer; clipboard-write" allowfullscreen></iframe>
                             <button id="changeEmbedBtn" onclick="resetExternalEmbed()" class="hidden absolute bottom-3.5 right-3.5 z-30 bg-white/95 hover:bg-white text-xs font-extrabold text-migani-navy px-3.5 py-1.5 rounded-xl shadow-md">
                                 Cambiar enlace
                             </button>
@@ -1168,15 +1172,18 @@
         let localStream = null;
         let currentFacingMode = 'user';
         let isAudioOnly = false;
-        let uploadedMediaData = null;
-        let selectedRating = 5;
-        let currentFilter = 'all';
-
-        // Firebase Cloud State variables
+        // Firebase & Real-Time Global Sync State variables (Works on GitHub Pages out of the box)
         let db = null;
         let auth = null;
-        let userId = null;
+        let userId = 'user_' + Math.random().toString(36).substring(2, 10);
+        let mqttClient = null;
+        const MQTT_TOPIC_BASE = 'frecuencia_migani_live_2026_v1';
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'frecuencia-migani-escuela';
+        let activeEmbedUrl = '';
+        let activeStreamSource = 'demo';
+        let selectedRating = 5;
+        let uploadedMediaData = null;
+        let currentFilter = 'all';
 
         const BLOCKED_WORDS = [
             'mierda', 'puta', 'puto', 'pendejo', 'pendeja', 'estupido', 'estupida',
@@ -1284,8 +1291,159 @@
             }
         ];
 
-        // Initialize Firebase Real-time Cloud Storage
+        function updateSyncIndicator(isConnected, label) {
+            const dot = document.getElementById('cloudSyncDot');
+            const txt = document.getElementById('cloudSyncText');
+            if (dot) {
+                dot.className = isConnected
+                    ? 'w-2 h-2 rounded-full bg-emerald-400'
+                    : 'w-2 h-2 rounded-full bg-amber-300 animate-pulse';
+            }
+            if (txt) txt.textContent = label;
+        }
+
+        // Global Real-time Synchronization via WebSockets (Works 100% Free on GitHub Pages across all devices)
+        function initGlobalRealtimeSync() {
+            if (typeof mqtt === 'undefined') return;
+            try {
+                mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+                    clientId: 'migani_' + Math.random().toString(16).substring(2, 10),
+                    clean: true,
+                    connectTimeout: 5000,
+                    reconnectPeriod: 2000
+                });
+
+                mqttClient.on('connect', () => {
+                    updateSyncIndicator(true, 'En Vivo Global Conectado');
+                    mqttClient.subscribe(`${MQTT_TOPIC_BASE}/chat`, { qos: 0 });
+                    mqttClient.subscribe(`${MQTT_TOPIC_BASE}/state`, { qos: 1 });
+                    mqttClient.subscribe(`${MQTT_TOPIC_BASE}/wall`, { qos: 1 });
+                    mqttClient.subscribe(`${MQTT_TOPIC_BASE}/reactions`, { qos: 0 });
+                });
+
+                mqttClient.on('message', (topic, payload) => {
+                    try {
+                        const data = JSON.parse(payload.toString());
+                        if (!data) return;
+
+                        if (topic === `${MQTT_TOPIC_BASE}/chat`) {
+                            if (data.action === 'new_msg' && data.msg) {
+                                const exists = chatMessages.some(m => String(m.id) === String(data.msg.id));
+                                if (!exists && !bannedUsers.has(data.msg.author)) {
+                                    chatMessages.push(data.msg);
+                                    if (chatMessages.length > 80) chatMessages.shift();
+                                    renderChatMessages();
+                                }
+                            } else if (data.action === 'delete_msg') {
+                                chatMessages = chatMessages.filter(m => String(m.id) !== String(data.msgId));
+                                renderChatMessages();
+                            } else if (data.action === 'ban_user' && data.username) {
+                                bannedUsers.add(data.username);
+                                chatMessages = chatMessages.filter(m => m.author !== data.username);
+                                renderChatMessages();
+                                renderBannedUsersList();
+                            }
+                        } else if (topic === `${MQTT_TOPIC_BASE}/state`) {
+                            // Apply live stream state sent by Admin to all visitors worldwide
+                            if (data.streamSource === 'embed' && data.embedUrl) {
+                                applyRemoteEmbedStream(data.embedUrl);
+                            } else if (data.streamSource === 'demo') {
+                                applyRemoteDemoStream();
+                            }
+                            if (data.streamTitle) {
+                                const titleEl = document.getElementById('currentStreamTitle');
+                                if (titleEl) titleEl.textContent = data.streamTitle;
+                            }
+                            if (Array.isArray(data.scheduleItems)) {
+                                scheduleItems = data.scheduleItems;
+                                renderScheduleItems();
+                            }
+                        } else if (topic === `${MQTT_TOPIC_BASE}/wall`) {
+                            if (Array.isArray(data.wallPosts)) {
+                                wallPosts = data.wallPosts;
+                                renderWallPosts();
+                            }
+                            if (Array.isArray(data.pendingWallPosts)) {
+                                pendingWallPosts = data.pendingWallPosts;
+                                renderPendingWallPosts();
+                            }
+                        } else if (topic === `${MQTT_TOPIC_BASE}/reactions`) {
+                            if (data.emoji) triggerReaction(data.emoji, false);
+                            if (data.likes) {
+                                streamLikes = Math.max(streamLikes, data.likes);
+                                const mainCounter = document.getElementById('streamLikeCount');
+                                const chatCounter = document.getElementById('chatHeaderLikes');
+                                if (mainCounter) mainCounter.textContent = streamLikes;
+                                if (chatCounter) chatCounter.textContent = streamLikes;
+                            }
+                        }
+                    } catch (err) {
+                        console.log('Sync parse error:', err);
+                    }
+                });
+            } catch (e) {
+                console.log('MQTT fallback:', e);
+            }
+        }
+
+        function broadcastRealtime(subtopic, dataObj, retain = false) {
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish(`${MQTT_TOPIC_BASE}/${subtopic}`, JSON.stringify(dataObj), {
+                    qos: retain ? 1 : 0,
+                    retain: retain
+                });
+            }
+        }
+
+        function broadcastWallState() {
+            broadcastRealtime('wall', {
+                wallPosts: wallPosts.slice(0, 20),
+                pendingWallPosts: pendingWallPosts.slice(0, 15),
+                updatedAt: Date.now()
+            }, true);
+        }
+
+        function broadcastStreamState() {
+            const titleEl = document.getElementById('currentStreamTitle');
+            broadcastRealtime('state', {
+                streamSource: activeStreamSource,
+                embedUrl: activeEmbedUrl,
+                streamTitle: titleEl ? titleEl.textContent : '',
+                scheduleItems: scheduleItems,
+                updatedAt: Date.now()
+            }, true);
+        }
+
+        function applyRemoteEmbedStream(embedUrl) {
+            activeStreamSource = 'embed';
+            activeEmbedUrl = embedUrl;
+            ['demo', 'camera', 'embed'].forEach(s => {
+                const view = document.getElementById(`view-${s}`);
+                if (view) view.classList.toggle('hidden', s !== 'embed');
+            });
+            const iframe = document.getElementById('externalStreamIframe');
+            const formBox = document.getElementById('embedFormBox');
+            const changeBtn = document.getElementById('changeEmbedBtn');
+            if (iframe && iframe.src !== embedUrl) {
+                iframe.src = embedUrl;
+            }
+            if (iframe) iframe.classList.remove('hidden');
+            if (formBox) formBox.classList.add('hidden');
+            if (changeBtn) changeBtn.classList.toggle('hidden', !isAdmin);
+        }
+
+        function applyRemoteDemoStream() {
+            activeStreamSource = 'demo';
+            activeEmbedUrl = '';
+            ['demo', 'camera', 'embed'].forEach(s => {
+                const view = document.getElementById(`view-${s}`);
+                if (view) view.classList.toggle('hidden', s !== 'demo');
+            });
+        }
+
+        // Initialize Firebase Real-time Cloud Storage (When available) + Global MQTT Sync
         async function initFirebaseCloud() {
+            initGlobalRealtimeSync();
             try {
                 if (typeof __firebase_config === 'undefined') return;
                 const firebaseConfig = JSON.parse(__firebase_config);
@@ -1419,6 +1577,12 @@
             if (source !== 'camera') {
                 stopLocalCamera();
             }
+
+            if (source === 'demo') {
+                activeStreamSource = 'demo';
+                activeEmbedUrl = '';
+                broadcastStreamState();
+            }
         }
 
         function toggleDemoMute() {
@@ -1515,21 +1679,37 @@
         function formatEmbedUrl(rawUrl) {
             const url = rawUrl.trim();
             if (!url) return '';
-            const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+            // Support standard YouTube watch, live, shorts, and youtu.be links
+            const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
             if (ytMatch && ytMatch[1]) {
-                return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1`;
+                return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&playsinline=1&rel=0`;
+            }
+            // If user pasted a VDO.Ninja push link by mistake, auto-convert ?push= to ?view= so viewers can watch!
+            if (url.includes('vdo.ninja') && url.includes('push=')) {
+                return url.replace('push=', 'view=');
             }
             return url;
+        }
+
+        function loadSampleYoutube() {
+            const input = document.getElementById('externalStreamInput');
+            if (input) {
+                input.value = 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
+            }
+            loadExternalEmbed();
         }
 
         async function loadExternalEmbed() {
             const input = document.getElementById('externalStreamInput');
             const raw = input ? input.value.trim() : '';
             if (!raw) {
-                showToast('🔗 Pega un enlace válido de YouTube Live, Twitch o VDO.Ninja.');
+                showToast('🔗 Pega un enlace válido de YouTube Live o VDO.Ninja.');
                 return;
             }
             const finalUrl = formatEmbedUrl(raw);
+            activeStreamSource = 'embed';
+            activeEmbedUrl = finalUrl;
+
             const iframe = document.getElementById('externalStreamIframe');
             const formBox = document.getElementById('embedFormBox');
             const changeBtn = document.getElementById('changeEmbedBtn');
@@ -1539,7 +1719,10 @@
                 iframe.classList.remove('hidden');
             }
             if (formBox) formBox.classList.add('hidden');
-            if (changeBtn) changeBtn.classList.remove('hidden');
+            if (changeBtn) changeBtn.classList.toggle('hidden', !isAdmin);
+
+            // Sync with all connected devices on GitHub Pages via WebSockets
+            broadcastStreamState();
 
             if (db && auth && auth.currentUser) {
                 try {
@@ -1550,7 +1733,7 @@
                 }
             }
 
-            showToast('📡 ¡Señal externa conectada correctamente para todo el mundo!');
+            showToast('📡 ¡Señal en vivo transmitiéndose ahora mismo para todos los equipos!');
         }
 
         function resetExternalEmbed() {
@@ -1589,10 +1772,11 @@
             const chatCounter = document.getElementById('chatHeaderLikes');
             if (mainCounter) mainCounter.textContent = streamLikes;
             if (chatCounter) chatCounter.textContent = streamLikes;
-            triggerReaction('❤️');
+            triggerReaction('❤️', true);
+            broadcastRealtime('reactions', { likes: streamLikes }, false);
         }
 
-        function triggerReaction(emoji) {
+        function triggerReaction(emoji, shouldBroadcast = true) {
             const zone = document.getElementById('floatingEmojiZone');
             if (!zone) return;
             const span = document.createElement('span');
@@ -1601,6 +1785,9 @@
             span.style.right = `${18 + Math.floor(Math.random() * 45)}px`;
             zone.appendChild(span);
             setTimeout(() => span.remove(), 1800);
+            if (shouldBroadcast) {
+                broadcastRealtime('reactions', { emoji }, false);
+            }
         }
 
         function copyStreamLink() {
@@ -1781,14 +1968,16 @@
             chatMessages = chatMessages.filter(m => m.author !== username);
             renderChatMessages();
             renderBannedUsersList();
+            broadcastRealtime('chat', { action: 'ban_user', username }, false);
             showToast(`🚫 @${username} fue retirado del chat por faltas de respeto.`);
         }
 
         function deleteChatMessage(msgId) {
             if (!isAdmin) return;
-            chatMessages = chatMessages.filter(m => m.id !== msgId);
+            chatMessages = chatMessages.filter(m => String(m.id) !== String(msgId));
             renderChatMessages();
-            showToast('🗑️ Mensaje eliminado del chat.');
+            broadcastRealtime('chat', { action: 'delete_msg', msgId }, false);
+            showToast('🗑️ Mensaje eliminado del chat para todos.');
         }
 
         function containsProfanity(text) {
@@ -1870,7 +2059,9 @@
             }
 
             const randomColor = AVATAR_COLORS[chatMessages.length % AVATAR_COLORS.length];
+            const msgId = Date.now() + '_' + Math.floor(Math.random() * 1000);
             const newMsg = {
+                id: msgId,
                 author: authorName,
                 role: currentUser ? currentUser.role : (isAdmin ? 'Admin' : 'Estudiante'),
                 text: rawText,
@@ -1881,18 +2072,19 @@
             };
 
             msgInput.value = '';
+            chatMessages.push(newMsg);
+            renderChatMessages();
+
+            // Broadcast immediately to all connected browsers on GitHub Pages
+            broadcastRealtime('chat', { action: 'new_msg', msg: newMsg }, false);
 
             if (db && auth && auth.currentUser) {
                 try {
                     const chatCol = window.firebaseDb.collection(db, 'artifacts', appId, 'public', 'data', 'chatMessages');
                     window.firebaseDb.addDoc(chatCol, newMsg);
                 } catch (err) {
-                    chatMessages.push({ id: Date.now(), ...newMsg });
-                    renderChatMessages();
+                    console.log('Firebase local fallback:', err);
                 }
-            } else {
-                chatMessages.push({ id: Date.now(), ...newMsg });
-                renderChatMessages();
             }
         }
 
@@ -1990,7 +2182,8 @@
 
             closeAddScheduleModal();
             renderScheduleItems();
-            showToast('📅 ¡Nuevo tema agregado a la programación!');
+            broadcastStreamState();
+            showToast('📅 ¡Nuevo tema agregado y sincronizado con todos!');
         }
 
         function setScheduleLive(id) {
@@ -2009,14 +2202,39 @@
                 }
             });
             renderScheduleItems();
-            showToast('🔴 ¡Programa al aire actualizado!');
+            broadcastStreamState();
+            showToast('🔴 ¡Programa al aire actualizado para todos!');
         }
 
         function deleteScheduleItem(id) {
             if (!isAdmin) return;
             scheduleItems = scheduleItems.filter(i => i.id !== id);
             renderScheduleItems();
+            broadcastStreamState();
             showToast('🗑️ Tema eliminado de la parrilla.');
+        }
+
+        async function generateAiScheduleSuggestion() {
+            if (!isAdmin) return;
+            showToast('✨ Generando idea de programa con IA...');
+            const systemPrompt = "Sugiere un bloque de radio escolar juvenil corto en formato: Titulo | Horario | Descripcion corta.";
+            try {
+                const text = await callGeminiText("Dame 1 idea fresca de programa escolar para hoy.", systemPrompt);
+                const parts = text ? text.split('|').map(s => s.trim()) : [];
+                scheduleItems.push({
+                    id: Date.now(),
+                    timeLabel: parts[1] || '🎧 11:30 AM • Especial',
+                    title: parts[0] || 'Debate Juvenil Migani',
+                    desc: parts[2] || 'Participación abierta de todos los cursos',
+                    emoji: '🌟',
+                    isLive: false
+                });
+                renderScheduleItems();
+                broadcastStreamState();
+                showToast('✨ ¡Idea agregada a la parrilla!');
+            } catch (e) {
+                showToast('No se pudo generar la idea en este momento.');
+            }
         }
 
         function openLoginModal() {
@@ -2109,33 +2327,17 @@
             };
 
             if (isAdmin) {
-                if (db && auth && auth.currentUser) {
-                    try {
-                        const postsCol = window.firebaseDb.collection(db, 'artifacts', appId, 'public', 'data', 'wallPosts');
-                        await window.firebaseDb.addDoc(postsCol, newPost);
-                    } catch (err) {
-                        wallPosts.unshift({ id: Date.now(), ...newPost });
-                        renderWallPosts();
-                    }
-                } else {
-                    wallPosts.unshift({ id: Date.now(), ...newPost });
-                    renderWallPosts();
-                }
-                showToast('✅ ¡Publicación aprobada y agregada al muro!');
+                const postWithId = { id: Date.now(), ...newPost };
+                wallPosts.unshift(postWithId);
+                renderWallPosts();
+                broadcastWallState();
+                showToast('✅ ¡Publicación aprobada y visible para todo el colegio!');
             } else {
-                if (db && auth && auth.currentUser) {
-                    try {
-                        const pendingCol = window.firebaseDb.collection(db, 'artifacts', appId, 'public', 'data', 'pendingWallPosts');
-                        await window.firebaseDb.addDoc(pendingCol, newPost);
-                    } catch (err) {
-                        pendingWallPosts.unshift({ id: Date.now(), ...newPost });
-                        renderPendingWallPosts();
-                    }
-                } else {
-                    pendingWallPosts.unshift({ id: Date.now(), ...newPost });
-                    renderPendingWallPosts();
-                }
-                showToast('📬 ¡Enviado! Cabina Admin lo revisará antes de publicarlo para todo el mundo.');
+                const pendingWithId = { id: Date.now(), ...newPost };
+                pendingWallPosts.unshift(pendingWithId);
+                renderPendingWallPosts();
+                broadcastWallState();
+                showToast('📬 ¡Enviado! Cabina Admin lo verá en tiempo real para aprobarlo.');
             }
 
             document.getElementById('postTitleInput').value = '';
@@ -2202,6 +2404,7 @@
             wallPosts.unshift(approved);
             renderPendingWallPosts();
             renderWallPosts();
+            broadcastWallState();
             showToast('🎉 ¡Publicación aprobada y publicada para todo el mundo!');
         }
 
@@ -2209,6 +2412,7 @@
             if (!isAdmin) return;
             pendingWallPosts = pendingWallPosts.filter(p => p.id !== id);
             renderPendingWallPosts();
+            broadcastWallState();
             showToast('🗑️ Publicación rechazada.');
         }
 
@@ -2216,6 +2420,7 @@
             if (!isAdmin) return;
             wallPosts = wallPosts.filter(p => p.id !== id);
             renderWallPosts();
+            broadcastWallState();
             showToast('🗑️ Publicación eliminada del muro.');
         }
 
@@ -2413,18 +2618,20 @@
             const text = scriptBox.value.trim();
             if (!text) return;
 
-            chatMessages.push({
-                id: Date.now(),
+            const aiMsg = {
+                id: Date.now() + '_ai',
                 author: 'DJ_Migani_IA',
                 role: 'Copiloto IA',
                 text: text,
                 time: 'Ahora',
                 isStaff: true,
                 color: 'bg-migani-red'
-            });
+            };
+            chatMessages.push(aiMsg);
             renderChatMessages();
+            broadcastRealtime('chat', { action: 'new_msg', msg: aiMsg }, false);
             closeAiStudioModal();
-            showToast('🎙️ ¡Mensaje publicado en el Chat!');
+            showToast('🎙️ ¡Mensaje publicado en el Chat para todos!');
         }
 
         async function enhanceReviewWithAi() {
@@ -2555,16 +2762,18 @@
             try {
                 const reply = await callGeminiText(`Chat escolar: ${recentChat}`, systemPrompt);
                 if (reply) {
-                    chatMessages.push({
-                        id: Date.now(),
+                    const djMsg = {
+                        id: Date.now() + '_dj',
                         author: 'DJ_Migani_IA',
                         role: 'Bot IA',
                         text: reply.trim().replace(/^["']|["']$/g, ''),
                         time: 'Ahora',
                         isStaff: true,
                         color: 'bg-migani-red'
-                    });
+                    };
+                    chatMessages.push(djMsg);
                     renderChatMessages();
+                    broadcastRealtime('chat', { action: 'new_msg', msg: djMsg }, false);
                     triggerReaction('🤖');
                 }
             } catch (e) {
@@ -2621,11 +2830,49 @@
                 wallPosts.unshift(newPoster);
                 renderWallPosts();
             }
+            broadcastWallState();
 
             document.getElementById('posterTitleInput').value = '';
             document.getElementById('posterDescInput').value = '';
             closePosterStudioModal();
-            showToast('🎨 ¡Póster oficial autorizado y publicado en el muro!');
+            showToast('🎨 ¡Póster oficial autorizado y publicado para todos!');
+        }
+
+        function handleFilePreview(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const fileNameEl = document.getElementById('uploadFileName');
+            if (fileNameEl) fileNameEl.textContent = file.name;
+
+            const isVideo = file.type.startsWith('video/');
+            if (isVideo) {
+                const url = URL.createObjectURL(file);
+                uploadedMediaData = { type: 'video', url };
+                return;
+            }
+
+            // Compress image so it can sync smoothly across all connected devices
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const maxDim = 640;
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > maxDim || h > maxDim) {
+                        if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                        else { w = Math.round((w * maxDim) / h); h = maxDim; }
+                    }
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    uploadedMediaData = { type: 'image', url: canvas.toDataURL('image/jpeg', 0.72) };
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         }
 
         function showToast(msg) {
