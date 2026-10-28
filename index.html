@@ -1732,15 +1732,21 @@
         }
 
         function resetExternalEmbed() {
+            activeStreamSource = 'demo';
+            activeEmbedUrl = '';
             const iframe = document.getElementById('externalStreamIframe');
             const formBox = document.getElementById('embedFormBox');
             const changeBtn = document.getElementById('changeEmbedBtn');
+            const input = document.getElementById('externalStreamInput');
+            if (input) input.value = '';
             if (iframe) {
                 iframe.src = '';
                 iframe.classList.add('hidden');
             }
             if (formBox) formBox.classList.remove('hidden');
             if (changeBtn) changeBtn.classList.add('hidden');
+            broadcastStreamState();
+            showToast('🔄 Volviendo al video de cabina principal.');
         }
 
         function requestAdminAndGoToEmbed() {
