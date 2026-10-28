@@ -20,6 +20,16 @@
         window.firebaseApp = initializeApp;
         window.firebaseAuth = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
         window.firebaseDb = { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, addDoc };
+        
+        // Inject official Firebase configuration provided by the admin
+        window.__firebase_config = JSON.stringify({
+            apiKey: "AIzaSyCJgCdPpHTwPt7jCB9OlDpRRz1NtdQlb-o",
+            authDomain: "frecuencia-migani.firebaseapp.com",
+            projectId: "frecuencia-migani",
+            storageBucket: "frecuencia-migani.firebasestorage.app",
+            messagingSenderId: "1021506682847",
+            appId: "1:1021506682847:web:99123f6af5551beedace6a"
+        });
     </script>
 
     <script>
@@ -1240,8 +1250,8 @@
                 embedUrl: activeEmbedUrl,
                 streamTitle: titleEl ? titleEl.textContent : '',
                 scheduleItems: scheduleItems,
-                wallPosts: wallPosts.slice(0, 40),
-                pendingWallPosts: pendingWallPosts.slice(0, 30),
+                wallPosts: wallPosts.slice(0, 60),
+                pendingWallPosts: pendingWallPosts.slice(0, 40),
                 adminPassword: adminPassword
             };
         }
@@ -1252,6 +1262,7 @@
                 window.name = JSON.stringify(snap);
                 if (typeof window.localStorage !== 'undefined') {
                     window.localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(snap));
+                    window.localStorage.setItem(LOCAL_CACHE_KEY + '_permanent_backup', JSON.stringify(snap));
                 }
             } catch (e) {
                 console.log('Cache save notice:', e);
@@ -1262,7 +1273,7 @@
             try {
                 let raw = null;
                 if (typeof window.localStorage !== 'undefined') {
-                    raw = window.localStorage.getItem(LOCAL_CACHE_KEY);
+                    raw = window.localStorage.getItem(LOCAL_CACHE_KEY) || window.localStorage.getItem(LOCAL_CACHE_KEY + '_permanent_backup');
                 }
                 if (!raw && window.name && window.name.startsWith('{')) {
                     raw = window.name;
